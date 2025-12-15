@@ -62,33 +62,67 @@ const App: React.FC = () => {
     }
   }, [token]);
 
-  const loadUserData = async (authToken: string) => {
-    setLoading(true);
-    try {
-      const profile = await api.getProfile(authToken);
-      setUserProfile(profile);
-      
-      const role = profile.user.role;
-      if (role === 'patient' || role === 'user') {
-         const records = await api.getMedicalRecords(authToken);
-         setMedicalRecords(records);
-         setActiveTab('summary');
-      } else if (role === 'admin') {
-         setActiveTab('dashboard');
-      } else if (role === 'doctor') {
-         setActiveTab('patients');
-      } else if (role === 'laboratory') {
-         setActiveTab('requests');
-      }
+  const loadUserData = async () => {
+  const token = localStorage.getItem('token');
+  if (!token) {
+    navigate('/login');
+    return;
+  }
 
-    } catch (err) {
-      console.error(err);
-      setError('Impossible de charger le profil. Veuillez vous reconnecter.');
-      handleLogout();
-    } finally {
-      setLoading(false);
+  try {
+    // 1. Récupérer le profil
+    const profileData = await api.getProfile(token);
+    
+    if (profileData.user.error) {
+      console.error('Erreur de profil, déconnexion...');
+      localStorage.removeItem('token');
+      navigate('/login');
+      return;
     }
-  };
+    
+    // Stocker les données
+    setUser(profileData.user);
+    if (profileData.patient) {
+      setPatient(profileData.patient);
+    }
+    
+    // 2. Récupérer les dossiers médicaux SEULEMENT si patient
+    if (profileData.user.role === 'patient') {
+      const records = await api.getMedicalRecords(token, 'patient');
+      setMedicalRecords(records);
+    }
+    
+    // 3. Récupérer les stats admin SEULEMENT si admin
+    if (profileData.user.role === 'admin') {
+      try {
+        const stats = await api.admin.getStats(token);
+        setAdminStats(stats);
+      } catch (adminError) {
+        console.warn('Admin stats not accessible:', adminError);
+      }
+    }
+    
+    setIsLoading(false);
+    
+  } catch (error) {
+    console.error('Failed to load user data:', error);
+    
+    // Gestion d'erreur plus robuste
+    if (error.message.includes('401') || error.message.includes('403')) {
+      // Token invalide ou expiré
+      localStorage.removeItem('token');
+      navigate('/login');
+    } else {
+      // Autre erreur, continuer avec des données minimales
+      setUser({
+        id: 0,
+        email: 'unknown@user',
+        role: 'user'
+      });
+      setIsLoading(false);
+    }
+  }
+};
 
   const selectRole = (role: UserRole) => {
     setTargetRole(role);
@@ -218,7 +252,7 @@ const App: React.FC = () => {
   };
 
   // --- RENDER UNAUTHENTICATED SCREENS ---
-  if (!token || !userProfile) {
+  if (!token) {
     return (
       <div className={`min-h-screen flex flex-col items-center justify-center p-6 relative overflow-hidden transition-all duration-500 ${
         themeMode === 'cosmic' ? 'bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900' :
@@ -276,14 +310,14 @@ const App: React.FC = () => {
               themeMode === 'neon' ? 'text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-blue-300 neon-text' :
               'text-amber-900'
             }`}>
-              TOHPIOTOH
+              TOHPITOH
             </h1>
             <p className={`text-sm font-medium tracking-widest ${
               themeMode === 'cosmic' ? 'text-purple-200/70' :
               themeMode === 'neon' ? 'text-cyan-200/70' :
               'text-amber-700/70'
             }`}>
-              SMART HEALTH PORTAL
+              DOSSIER ÉLECTRONIQUE DU PATIENT
             </p>
           </div>
 
@@ -316,14 +350,14 @@ const App: React.FC = () => {
                       themeMode === 'neon' ? 'text-white' :
                       'text-amber-900'
                     }`}>
-                      Citizen
+                      Patient
                     </h3>
                     <p className={`text-xs ${
                       themeMode === 'cosmic' ? 'text-purple-200/60' :
                       themeMode === 'neon' ? 'text-cyan-200/60' :
                       'text-amber-700/70'
                     }`}>
-                      Personal Health Vault
+                      Accéder à mon dossier médical
                     </p>
                   </div>
                 </div>
@@ -355,14 +389,14 @@ const App: React.FC = () => {
                       themeMode === 'neon' ? 'text-white' :
                       'text-emerald-900'
                     }`}>
-                      Healer
+                      Médecin
                     </h3>
                     <p className={`text-xs ${
                       themeMode === 'cosmic' ? 'text-emerald-200/60' :
                       themeMode === 'neon' ? 'text-green-200/60' :
                       'text-emerald-700/70'
                     }`}>
-                      Clinical Workspace
+                      Gestion des patients et soins
                     </p>
                   </div>
                 </div>
@@ -394,14 +428,14 @@ const App: React.FC = () => {
                       themeMode === 'neon' ? 'text-white' :
                       'text-blue-900'
                     }`}>
-                      Analyst
+                      Laboratoire
                     </h3>
                     <p className={`text-xs ${
                       themeMode === 'cosmic' ? 'text-blue-200/60' :
                       themeMode === 'neon' ? 'text-blue-200/60' :
                       'text-blue-700/70'
                     }`}>
-                      Diagnostic Hub
+                      Traitement des analyses
                     </p>
                   </div>
                 </div>
@@ -433,14 +467,14 @@ const App: React.FC = () => {
                       themeMode === 'neon' ? 'text-white' :
                       'text-rose-900'
                     }`}>
-                      Sentinel
+                      Admin
                     </h3>
                     <p className={`text-xs ${
                       themeMode === 'cosmic' ? 'text-red-200/60' :
                       themeMode === 'neon' ? 'text-pink-200/60' :
                       'text-rose-700/70'
                     }`}>
-                      System Control
+                      Administration Système
                     </p>
                   </div>
                 </div>
@@ -476,9 +510,9 @@ const App: React.FC = () => {
                   themeMode === 'neon' ? 'text-white' :
                   'text-amber-900'
                 }`}>
-                  {targetRole === UserRole.PATIENT ? 'Citizen Portal' :
-                   targetRole === UserRole.DOCTOR ? 'Healer Console' :
-                   targetRole === UserRole.LAB ? 'Analyst Terminal' : 'Sentinel Command'}
+                  {targetRole === UserRole.PATIENT ? 'Espace Patient' :
+                   targetRole === UserRole.DOCTOR ? 'Espace Médecin' :
+                   targetRole === UserRole.LAB ? 'Espace Laboratoire' : 'Espace Admin'}
                 </h2>
                 <div className={`h-1 w-20 mx-auto rounded-full ${
                   themeMode === 'cosmic' ? 'bg-gradient-to-r from-purple-400 to-pink-400' :
@@ -541,7 +575,7 @@ const App: React.FC = () => {
                             'bg-black/20 border-cyan-400/30 text-white placeholder-cyan-300/40 focus:border-cyan-400 focus:shadow-lg focus:shadow-cyan-500/30' :
                             'bg-white/80 border-amber-300/50 text-amber-900 placeholder-amber-500/60 focus:border-amber-500 focus:shadow-lg focus:shadow-amber-500/20'
                         }`}
-                        placeholder="quantum@id.verse"
+                        placeholder="exemple@email.com"
                       />
                     </div>
                     
@@ -563,7 +597,7 @@ const App: React.FC = () => {
                             'bg-black/20 border-cyan-400/30 text-white placeholder-cyan-300/40 focus:border-cyan-400 focus:shadow-lg focus:shadow-cyan-500/30' :
                             'bg-white/80 border-amber-300/50 text-amber-900 placeholder-amber-500/60 focus:border-amber-500 focus:shadow-lg focus:shadow-amber-500/20'
                         }`}
-                        placeholder="••••••••••••"
+                        placeholder="••••••••"
                       />
                     </div>
                   </div>
@@ -594,7 +628,7 @@ const App: React.FC = () => {
                     {loading ? (
                       <Loader2 className="animate-spin mx-auto" size={24} />
                     ) : (
-                      <span className="text-white tracking-wider">QUANTUM ENTRY</span>
+                      <span className="text-white tracking-wider">SE CONNECTER</span>
                     )}
                   </button>
 
@@ -609,55 +643,288 @@ const App: React.FC = () => {
                           'text-amber-600 hover:text-amber-700'
                         }`}
                       >
-                        CREATE NEW IDENTITY →
+                        CRÉER UN COMPTE →
                       </button>
                     </div>
                   )}
                 </form>
               )}
 
-              {/* REGISTER FORM - Style similaire mais condensé */}
+              {/* REGISTER FORM */}
               {authStep === 'register' && (
-                <form onSubmit={handleRegister} className="space-y-4">
-                  {/* Form fields avec le même style que login */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <input
-                      type="text"
-                      required
-                      placeholder="First Name"
-                      className={`px-4 py-3 rounded-lg backdrop-blur-lg border-2 ${
-                        themeMode === 'cosmic' ? 'bg-white/5 border-purple-400/20 text-white' :
-                        themeMode === 'neon' ? 'bg-black/20 border-cyan-400/30 text-white' :
-                        'bg-white/80 border-amber-300/50 text-amber-900'
-                      }`}
-                      value={regData.firstName}
-                      onChange={(e) => setRegData({...regData, firstName: e.target.value})}
-                    />
-                    {/* ... autres champs avec le même pattern ... */}
-                  </div>
-                  
-                  <button 
-                    type="submit"
-                    className={`w-full py-4 rounded-xl font-bold text-white shadow-2xl ${
-                      themeMode === 'cosmic' ? 'bg-gradient-to-r from-purple-600 to-pink-600' :
-                      themeMode === 'neon' ? 'bg-gradient-to-r from-cyan-600 to-blue-600' :
-                      'bg-gradient-to-r from-amber-600 to-orange-600'
-                    }`}
-                  >
-                    GENERATE IDENTITY
-                  </button>
+                <form onSubmit={handleRegister} className="space-y-3 max-h-[60vh] overflow-y-auto pr-1 scroll-smooth">
+                   {/* Common Fields */}
+                   <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Prénom</label>
+                        <input 
+                            type="text" required value={regData.firstName}
+                            onChange={(e) => setRegData({...regData, firstName: e.target.value})}
+                            className={`w-full px-3 py-2 rounded-lg border-2 ${
+                              themeMode === 'cosmic' ? 'bg-white/5 border-purple-400/20 text-white' :
+                              themeMode === 'neon' ? 'bg-black/20 border-cyan-400/30 text-white' :
+                              'bg-white/80 border-amber-300/50 text-amber-900'
+                            }`}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Nom</label>
+                        <input 
+                            type="text" required value={regData.lastName}
+                            onChange={(e) => setRegData({...regData, lastName: e.target.value})}
+                            className={`w-full px-3 py-2 rounded-lg border-2 ${
+                              themeMode === 'cosmic' ? 'bg-white/5 border-purple-400/20 text-white' :
+                              themeMode === 'neon' ? 'bg-black/20 border-cyan-400/30 text-white' :
+                              'bg-white/80 border-amber-300/50 text-amber-900'
+                            }`}
+                        />
+                      </div>
+                   </div>
+
+                   <div>
+                      <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Email</label>
+                      <input 
+                          type="email" required value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          className={`w-full px-3 py-2 rounded-lg border-2 ${
+                            themeMode === 'cosmic' ? 'bg-white/5 border-purple-400/20 text-white' :
+                            themeMode === 'neon' ? 'bg-black/20 border-cyan-400/30 text-white' :
+                            'bg-white/80 border-amber-300/50 text-amber-900'
+                          }`}
+                      />
+                   </div>
+
+                   <div>
+                      <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Mot de passe</label>
+                      <input 
+                          type="password" required value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          className={`w-full px-3 py-2 rounded-lg border-2 ${
+                            themeMode === 'cosmic' ? 'bg-white/5 border-purple-400/20 text-white' :
+                            themeMode === 'neon' ? 'bg-black/20 border-cyan-400/30 text-white' :
+                            'bg-white/80 border-amber-300/50 text-amber-900'
+                          }`}
+                      />
+                   </div>
+                   
+                   <div>
+                      <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Téléphone</label>
+                      <div className="relative">
+                        <Phone className={`absolute left-3 top-2.5 ${
+                          themeMode === 'cosmic' ? 'text-purple-300/60' :
+                          themeMode === 'neon' ? 'text-cyan-300/60' :
+                          'text-amber-500/60'
+                        }`} size={14} />
+                        <input 
+                            type="tel" required value={regData.phone}
+                            onChange={(e) => setRegData({...regData, phone: e.target.value})}
+                            className={`w-full pl-8 pr-3 py-2 rounded-lg border-2 ${
+                              themeMode === 'cosmic' ? 'bg-white/5 border-purple-400/20 text-white' :
+                              themeMode === 'neon' ? 'bg-black/20 border-cyan-400/30 text-white' :
+                              'bg-white/80 border-amber-300/50 text-amber-900'
+                            }`}
+                        />
+                      </div>
+                   </div>
+
+                   {/* PATIENT SPECIFIC */}
+                   {targetRole === UserRole.PATIENT && (
+                       <div className={`p-3 rounded-lg border-2 space-y-3 ${
+                         themeMode === 'cosmic' ? 'bg-purple-500/10 border-purple-400/20' :
+                         themeMode === 'neon' ? 'bg-cyan-500/10 border-cyan-400/30' :
+                         'bg-amber-100 border-amber-300/50'
+                       }`}>
+                           <p className={`text-[10px] font-bold uppercase ${
+                             themeMode === 'cosmic' ? 'text-purple-300' :
+                             themeMode === 'neon' ? 'text-cyan-300' :
+                             'text-amber-700'
+                           }`}>
+                             Infos Patient
+                           </p>
+                           <div>
+                              <label className="block text-[10px] mb-1">Date de Naissance</label>
+                              <div className="relative">
+                                <Calendar className={`absolute left-3 top-2.5 ${
+                                  themeMode === 'cosmic' ? 'text-purple-300/60' :
+                                  themeMode === 'neon' ? 'text-cyan-300/60' :
+                                  'text-amber-500/60'
+                                }`} size={14} />
+                                <input 
+                                    type="date" required value={regData.dob}
+                                    onChange={(e) => setRegData({...regData, dob: e.target.value})}
+                                    className={`w-full pl-8 pr-3 py-2 rounded-lg border-2 ${
+                                      themeMode === 'cosmic' ? 'bg-white/10 border-purple-400/20 text-white' :
+                                      themeMode === 'neon' ? 'bg-black/30 border-cyan-400/30 text-white' :
+                                      'bg-white border-amber-300/50 text-amber-900'
+                                    }`}
+                                />
+                              </div>
+                           </div>
+                           <div>
+                              <label className="block text-[10px] mb-1">Genre</label>
+                              <select 
+                                value={regData.gender}
+                                onChange={(e) => setRegData({...regData, gender: e.target.value})}
+                                className={`w-full px-3 py-2 rounded-lg border-2 ${
+                                  themeMode === 'cosmic' ? 'bg-white/10 border-purple-400/20 text-white' :
+                                  themeMode === 'neon' ? 'bg-black/30 border-cyan-400/30 text-white' :
+                                  'bg-white border-amber-300/50 text-amber-900'
+                                }`}
+                              >
+                                <option value="M">Masculin</option>
+                                <option value="F">Féminin</option>
+                                <option value="O">Autre</option>
+                              </select>
+                           </div>
+                       </div>
+                   )}
+
+                   {/* DOCTOR SPECIFIC */}
+                   {targetRole === UserRole.DOCTOR && (
+                       <div className={`p-3 rounded-lg border-2 space-y-3 ${
+                         themeMode === 'cosmic' ? 'bg-emerald-500/10 border-emerald-400/20' :
+                         themeMode === 'neon' ? 'bg-green-500/10 border-green-400/30' :
+                         'bg-emerald-100 border-emerald-300/50'
+                       }`}>
+                           <p className={`text-[10px] font-bold uppercase ${
+                             themeMode === 'cosmic' ? 'text-emerald-300' :
+                             themeMode === 'neon' ? 'text-green-300' :
+                             'text-emerald-700'
+                           }`}>
+                             Infos Professionnelles
+                           </p>
+                           <div>
+                              <label className="block text-[10px] mb-1">Numéro de Licence</label>
+                              <div className="relative">
+                                <Hash className={`absolute left-3 top-2.5 ${
+                                  themeMode === 'cosmic' ? 'text-emerald-300/60' :
+                                  themeMode === 'neon' ? 'text-green-300/60' :
+                                  'text-emerald-500/60'
+                                }`} size={14} />
+                                <input 
+                                    type="text" required value={regData.licenseNumber}
+                                    onChange={(e) => setRegData({...regData, licenseNumber: e.target.value})}
+                                    className={`w-full pl-8 pr-3 py-2 rounded-lg border-2 ${
+                                      themeMode === 'cosmic' ? 'bg-white/10 border-emerald-400/20 text-white' :
+                                      themeMode === 'neon' ? 'bg-black/30 border-green-400/30 text-white' :
+                                      'bg-white border-emerald-300/50 text-emerald-900'
+                                    }`}
+                                    placeholder="LIC-12345"
+                                />
+                              </div>
+                           </div>
+                           <div className="grid grid-cols-2 gap-2">
+                               <div>
+                                  <label className="block text-[10px] mb-1">Spécialité</label>
+                                  <input 
+                                      type="text" required value={regData.specialty}
+                                      onChange={(e) => setRegData({...regData, specialty: e.target.value})}
+                                      className={`w-full px-3 py-2 rounded-lg border-2 ${
+                                        themeMode === 'cosmic' ? 'bg-white/10 border-emerald-400/20 text-white' :
+                                        themeMode === 'neon' ? 'bg-black/30 border-green-400/30 text-white' :
+                                        'bg-white border-emerald-300/50 text-emerald-900'
+                                      }`}
+                                  />
+                               </div>
+                               <div>
+                                  <label className="block text-[10px] mb-1">Hôpital/Clinique</label>
+                                  <input 
+                                      type="text" required value={regData.hospital}
+                                      onChange={(e) => setRegData({...regData, hospital: e.target.value})}
+                                      className={`w-full px-3 py-2 rounded-lg border-2 ${
+                                        themeMode === 'cosmic' ? 'bg-white/10 border-emerald-400/20 text-white' :
+                                        themeMode === 'neon' ? 'bg-black/30 border-green-400/30 text-white' :
+                                        'bg-white border-emerald-300/50 text-emerald-900'
+                                      }`}
+                                  />
+                               </div>
+                           </div>
+                       </div>
+                   )}
+
+                   {/* LAB SPECIFIC */}
+                   {targetRole === UserRole.LAB && (
+                       <div className={`p-3 rounded-lg border-2 space-y-3 ${
+                         themeMode === 'cosmic' ? 'bg-blue-500/10 border-blue-400/20' :
+                         themeMode === 'neon' ? 'bg-blue-500/10 border-blue-400/30' :
+                         'bg-blue-100 border-blue-300/50'
+                       }`}>
+                           <p className={`text-[10px] font-bold uppercase ${
+                             themeMode === 'cosmic' ? 'text-blue-300' :
+                             themeMode === 'neon' ? 'text-blue-300' :
+                             'text-blue-700'
+                           }`}>
+                             Infos Laboratoire
+                           </p>
+                           <div>
+                              <label className="block text-[10px] mb-1">Numéro d'Accréditation</label>
+                              <div className="relative">
+                                <Hash className={`absolute left-3 top-2.5 ${
+                                  themeMode === 'cosmic' ? 'text-blue-300/60' :
+                                  themeMode === 'neon' ? 'text-blue-300/60' :
+                                  'text-blue-500/60'
+                                }`} size={14} />
+                                <input 
+                                    type="text" required value={regData.licenseNumber}
+                                    onChange={(e) => setRegData({...regData, licenseNumber: e.target.value})}
+                                    className={`w-full pl-8 pr-3 py-2 rounded-lg border-2 ${
+                                      themeMode === 'cosmic' ? 'bg-white/10 border-blue-400/20 text-white' :
+                                      themeMode === 'neon' ? 'bg-black/30 border-blue-400/30 text-white' :
+                                      'bg-white border-blue-300/50 text-blue-900'
+                                    }`}
+                                    placeholder="LAB-98765"
+                                />
+                              </div>
+                           </div>
+                       </div>
+                   )}
+
+                   <div className="pt-2">
+                      <button 
+                        type="submit"
+                        disabled={loading}
+                        className={`w-full flex items-center justify-center p-4 rounded-xl font-bold text-white transition-all duration-300 transform hover:scale-[1.02] active:scale-95 shadow-2xl disabled:opacity-70 disabled:scale-100 ${
+                          targetRole === UserRole.PATIENT ? (
+                            themeMode === 'cosmic' ? 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600' :
+                            themeMode === 'neon' ? 'bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600' :
+                            'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600'
+                          ) : targetRole === UserRole.DOCTOR ? (
+                            themeMode === 'cosmic' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600' :
+                            themeMode === 'neon' ? 'bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600' :
+                            'bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600'
+                          ) : (
+                            themeMode === 'cosmic' ? 'bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600' :
+                            themeMode === 'neon' ? 'bg-gradient-to-r from-blue-500 to-violet-500 hover:from-blue-600 hover:to-violet-600' :
+                            'bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600'
+                          )
+                        }`}
+                      >
+                        {loading ? <Loader2 className="animate-spin" /> : "S'INSCRIRE"}
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setAuthStep('login')}
+                        className={`w-full text-center text-xs mt-3 ${
+                          themeMode === 'cosmic' ? 'text-purple-300/60 hover:text-purple-200' :
+                          themeMode === 'neon' ? 'text-cyan-300/60 hover:text-cyan-200' :
+                          'text-amber-600 hover:text-amber-700'
+                        }`}
+                      >
+                        Annuler
+                      </button>
+                   </div>
                 </form>
               )}
             </div>
           )}
           
-          <div className="mt-12 text-center">
-            <p className={`text-xs tracking-widest ${
+          <div className="mt-8 text-center">
+            <p className={`text-[10px] tracking-widest ${
               themeMode === 'cosmic' ? 'text-purple-300/40' :
               themeMode === 'neon' ? 'text-cyan-300/40' :
               'text-amber-600/40'
             }`}>
-              VERIDICARE QUANTUM SYSTEMS © 2024
+              © 2024 TOHPITOH - Plateforme de Santé Numérique
             </p>
           </div>
         </div>
@@ -689,7 +956,7 @@ const App: React.FC = () => {
               themeMode === 'neon' ? 'text-cyan-200' :
               'text-amber-700'
             }`}>
-              INITIALIZING QUANTUM STATE...
+              CHARGEMENT...
             </p>
           </div>
         </div>
@@ -708,7 +975,7 @@ const App: React.FC = () => {
       themeMode={themeMode}
       cycleTheme={cycleTheme}
     >
-      {/* Les composants restent inchangés fonctionnellement */}
+      {/* PATIENT VIEWS */}
       {(role === 'patient' || role === 'user') && (
         <>
           {activeTab === 'summary' && userProfile && (
@@ -733,6 +1000,7 @@ const App: React.FC = () => {
         </>
       )}
 
+      {/* DOCTOR VIEWS */}
       {role === 'doctor' && (
         <>
           {activeTab === 'patients' && (
@@ -744,6 +1012,7 @@ const App: React.FC = () => {
         </>
       )}
 
+      {/* LAB VIEWS */}
       {role === 'laboratory' && (
         <>
           {activeTab === 'requests' && (
@@ -755,6 +1024,7 @@ const App: React.FC = () => {
         </>
       )}
 
+      {/* ADMIN VIEWS */}
       {role === 'admin' && (
         <>
           {activeTab === 'dashboard' && (

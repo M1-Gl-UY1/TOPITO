@@ -59,66 +59,149 @@ export const api = {
   },
 
   // --- USER DATA ---
-  getProfile: async (token: string): Promise<FullProfile> => {
-    const rawData = await handleResponse(
-      await fetch(`${BASE_URL}/jwt/profile`, { headers: getHeaders(token) })
-    );
+  // --- USER DATA ---
+getProfile: async (token: string): Promise<FullProfile> => {
+  try {
+    // ÉTAPE 1: Déterminer le type d'utilisateur en testant différents endpoints
+    let userRole = 'user';
+    let userData: any = {};
+    let patientData: any = undefined;
 
-    // Normalize user data structure (handle nested 'data' or 'user' keys)
-    // Some backends wrap the response, others return it directly.
-    const userData = rawData.user || rawData.data || rawData;
+    // Testez les endpoints dans l'ordre (admin -> doctor -> laboratory -> patient)
+    const endpointsToTest = [
+      { 
+        url: `${BASE_URL}/admin/statistics`, 
+        role: 'admin',
+        profileUrl: null // Admins n'ont pas de profil spécifique dans ce système
+      },
+      { 
+        url: `${BASE_URL}/doctors/profile/me`, 
+        role: 'doctor',
+        profileUrl: `${BASE_URL}/doctors/profile/me`
+      },
+      { 
+        url: `${BASE_URL}/laboratories/profile/me`, 
+        role: 'laboratory', 
+        profileUrl: `${BASE_URL}/laboratories/profile/me`
+      },
+      { 
+        url: `${BASE_URL}/patients/profile`, 
+        role: 'patient',
+        profileUrl: `${BASE_URL}/patients/profile`
+      }
+    ];
 
-    // Normalize Role: Handle missing role, mapped types, or admin flags
-    // This fixes issues where role is undefined but is_staff/is_superuser exists
-    if (!userData.role) {
-        if (userData.is_superuser || userData.is_staff) {
-            userData.role = 'admin';
-        } else if (userData.user_type) {
-            userData.role = userData.user_type;
-        } else {
-             // Default to 'user' if we can't determine, preventing undefined errors
-             userData.role = 'user';
-        }
-    }
+    // Testez chaque endpoint pour déterminer le rôle
+    for (const endpoint of endpointsToTest) {
+      try {
+        const testResponse = await fetch(endpoint.url, {
+          method: 'GET',
+          headers: getHeaders(token),
+        });
 
-    let patientData = undefined;
-    // Fetch patient details ONLY for patient/user roles (not admin, doctor, laboratory)
-    // Only fetch if user has patient or user role
-    if (userData.role === 'patient' || userData.role === 'user') {
-        try {
-            const patRes = await fetch(`${BASE_URL}/patients/profile`, {
-                headers: getHeaders(token)
+        // Si la réponse est OK (200) ou même 403 (accès mais interdit), 
+        // c'est qu'on a trouvé le bon "type" d'utilisateur
+        if (testResponse.status === 200 || testResponse.status === 403) {
+          userRole = endpoint.role;
+          
+          // Récupérer les données du profil si l'endpoint existe
+          if (endpoint.profileUrl) {
+            const profileResponse = await fetch(endpoint.profileUrl, {
+              headers: getHeaders(token),
             });
-            if(patRes.ok) {
-                const data = await patRes.json();
-                patientData = data.data || data;
+            
+            if (profileResponse.ok) {
+              const rawProfileData = await profileResponse.json();
+              userData = rawProfileData.user || rawProfileData.data || rawProfileData;
+              
+              // Si c'est un patient, stocker aussi dans patientData
+              if (userRole === 'patient') {
+                patientData = userData;
+              }
             }
-        } catch (e) {
-            // Silently fail - patient profile might not exist yet or endpoint not available
-            console.warn("Info: Could not fetch specific patient details (might not exist yet).");
+          } else if (userRole === 'admin') {
+            // Pour admin, on peut récupérer des infos basiques
+            // Essayez de décoder le token pour obtenir l'email
+            try {
+              const tokenPayload = JSON.parse(atob(token.split('.')[1]));
+              userData = {
+                id: tokenPayload.userId || tokenPayload.sub,
+                email: tokenPayload.email,
+                role: 'admin'
+              };
+            } catch (e) {
+              userData = { role: 'admin', email: 'admin@system' };
+            }
+          }
+          break; // On a trouvé le rôle, on arrête
         }
+      } catch (error) {
+        console.warn(`Test endpoint ${endpoint.url} failed:`, error);
+        continue;
+      }
     }
+
+    // Si on n'a pas trouvé de rôle, essayer de décoder le token
+    if (!userData.id && token) {
+      try {
+        const tokenPayload = JSON.parse(atob(token.split('.')[1]));
+        userData = {
+          id: tokenPayload.userId || tokenPayload.sub,
+          email: tokenPayload.email || 'unknown@user',
+          role: userRole
+        };
+      } catch (e) {
+        userData = { role: userRole, email: 'unknown@user' };
+      }
+    }
+
+    // Assurez-vous que le rôle est défini
+    userData.role = userRole;
 
     return {
       user: userData,
       patient: patientData
     };
-  },
 
-  getMedicalRecords: async (token: string): Promise<MedicalRecord[]> => {
-    try {
-      const response = await fetch(`${BASE_URL}/patients/medical-records`, {
-        headers: getHeaders(token),
-      });
-      if (!response.ok) return []; // Fail gracefully for lists
-      const data = await response.json();
-      // Handle different response formats
-      return Array.isArray(data) ? data : (data.records || data.data || []);
-    } catch (error) {
-      console.error('Error fetching medical records:', error);
+  } catch (error) {
+    console.error('API Profile Error:', error);
+    // Retourner un profil minimal plutôt que de lancer une erreur
+    return {
+      user: {
+        id: 0,
+        email: 'error@user',
+        role: 'user',
+        error: true
+      },
+      patient: undefined
+    };
+  }
+},
+
+  getMedicalRecords: async (token: string, role?: string): Promise<MedicalRecord[]> => {
+  // Ne pas appeler si l'utilisateur n'est pas patient
+  if (role && role !== 'patient') {
+    return [];
+  }
+  
+  try {
+    const response = await fetch(`${BASE_URL}/patients/medical-records`, {
+      headers: getHeaders(token),
+    });
+    
+    // Si 403, c'est normal (pas patient), retourner tableau vide
+    if (response.status === 403) {
       return [];
     }
-  },
+    
+    if (!response.ok) return [];
+    const data = await response.json();
+    return Array.isArray(data) ? data : (data.records || data.data || []);
+  } catch (error) {
+    console.error('Error fetching medical records:', error);
+    return [];
+  }
+},
 
   updateProfile: async (token: string, profileData: any) => {
     const response = await fetch(`${BASE_URL}/jwt/profile`, {
