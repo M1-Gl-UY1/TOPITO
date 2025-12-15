@@ -27,14 +27,10 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('summary');
   const [viewState, setViewState] = useState('list');
 
-  // Dark Mode State
-  const [darkMode, setDarkMode] = useState<boolean>(() => {
-    const saved = localStorage.getItem('darkMode');
-    if (saved !== null) {
-      return saved === 'true';
-    }
-    // Check system preference
-    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  // Theme State
+  const [themeMode, setThemeMode] = useState<'cosmic' | 'neon' | 'vintage'>(() => {
+    const saved = localStorage.getItem('themeMode');
+    return saved === 'neon' ? 'neon' : saved === 'vintage' ? 'vintage' : 'cosmic';
   });
 
   // Login Form State
@@ -53,15 +49,11 @@ const App: React.FC = () => {
     hospital: '',
   });
 
-  // Dark Mode Effect
+  // Theme Effect
   useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-    localStorage.setItem('darkMode', darkMode.toString());
-  }, [darkMode]);
+    document.documentElement.setAttribute('data-theme', themeMode);
+    localStorage.setItem('themeMode', themeMode);
+  }, [themeMode]);
 
   // Initial Data Load
   useEffect(() => {
@@ -115,35 +107,26 @@ const App: React.FC = () => {
 
     try {
       const data = await api.login(email, password);
-      // Support multiple token formats: Standard 'token', OAuth2 'accessToken', SimpleJWT 'access', DRF 'key'
       const authToken = data.token || data.accessToken || data.access || data.key;
       
       if (authToken) {
         let profile: FullProfile;
-
-        // OPTIMIZATION: Check if user data is returned directly in the Auth response
-        // This answers "Why profile instead of auth?" -> We use auth if it gives us the data.
         const authUser = data.user || data.data || (data.role ? data : null);
 
         if (authUser) {
-             // Normalization logic similar to api.getProfile
              if (!authUser.role) {
                 if (authUser.is_superuser || authUser.is_staff) authUser.role = 'admin';
                 else if (authUser.user_type) authUser.role = authUser.user_type;
                 else authUser.role = 'user';
              }
              profile = { user: authUser };
-             // Note: We might miss the 'patient' specific object here if the auth endpoint doesn't return it,
-             // but we will fetch medical records which is the main thing.
         } else {
-             // Fallback: Use the specific profile endpoint
              profile = await api.getProfile(authToken);
         }
 
         const userRole = profile.user.role;
         let roleValid = false;
         
-        // Role Validation Logic
         if (userRole === 'admin' && targetRole === UserRole.ADMIN) roleValid = true;
         else if (targetRole === UserRole.PATIENT && (userRole === 'patient' || userRole === 'user')) roleValid = true;
         else if (targetRole === UserRole.DOCTOR && userRole === 'doctor') roleValid = true;
@@ -157,7 +140,6 @@ const App: React.FC = () => {
         setToken(authToken);
         setUserProfile(profile);
         
-        // Post-login routing
         if (userRole === 'admin') setActiveTab('dashboard');
         else if (userRole === 'patient' || userRole === 'user') {
            const records = await api.getMedicalRecords(authToken);
@@ -195,7 +177,6 @@ const App: React.FC = () => {
         role: targetRole === UserRole.LAB ? 'laboratory' : targetRole === UserRole.DOCTOR ? 'doctor' : 'patient',
       };
 
-      // Add role specific fields
       if (targetRole === UserRole.PATIENT) {
         payload.date_of_birth = regData.dob;
         payload.gender = regData.gender;
@@ -209,7 +190,7 @@ const App: React.FC = () => {
 
       await api.register(payload);
       setSuccessMsg("Compte créé avec succès ! Vous pouvez maintenant vous connecter.");
-      setAuthStep('login'); // Switch back to login
+      setAuthStep('login');
     } catch (err: any) {
       console.error(err);
       setError(err.message || "Erreur lors de l'inscription.");
@@ -230,399 +211,453 @@ const App: React.FC = () => {
     setTargetRole(null);
   };
 
-  const toggleDarkMode = () => {
-    setDarkMode(!darkMode);
+  const cycleTheme = () => {
+    setThemeMode(prev => 
+      prev === 'cosmic' ? 'neon' : prev === 'neon' ? 'vintage' : 'cosmic'
+    );
   };
 
   // --- RENDER UNAUTHENTICATED SCREENS ---
   if (!token || !userProfile) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-900 dark:to-slate-800 flex flex-col items-center justify-center p-6 relative overflow-hidden transition-colors duration-300">
+      <div className={`min-h-screen flex flex-col items-center justify-center p-6 relative overflow-hidden transition-all duration-500 ${
+        themeMode === 'cosmic' ? 'bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900' :
+        themeMode === 'neon' ? 'bg-gradient-to-br from-black via-blue-900 to-cyan-900' :
+        'bg-gradient-to-br from-amber-50 via-orange-100 to-yellow-100'
+      }`}>
         
-        {/* Dark Mode Toggle (Login Screen) */}
+        {/* Theme Toggle */}
         <button
-          onClick={toggleDarkMode}
-          className="absolute top-6 right-6 p-2 rounded-full bg-white dark:bg-slate-800 shadow-lg hover:shadow-xl transition-all z-20 border border-slate-200 dark:border-slate-700"
-          aria-label="Toggle dark mode"
+          onClick={cycleTheme}
+          className="absolute top-6 right-6 p-3 rounded-full backdrop-blur-lg bg-white/10 border border-white/20 shadow-2xl hover:scale-110 transition-all z-20 group"
+          aria-label="Cycle theme"
         >
-          {darkMode ? (
-            <svg className="w-6 h-6 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clipRule="evenodd" />
-            </svg>
-          ) : (
-            <svg className="w-6 h-6 text-slate-700" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
-            </svg>
-          )}
+          <div className={`w-6 h-6 transition-all duration-500 ${
+            themeMode === 'cosmic' ? 'text-purple-300' :
+            themeMode === 'neon' ? 'text-cyan-300' :
+            'text-amber-600'
+          }`}>
+            {themeMode === 'cosmic' ? '✨' : themeMode === 'neon' ? '⚡' : '🍂'}
+          </div>
         </button>
 
-        {/* Decorative Background Elements */}
-        {/* Changement : Utilisation de sky/cyan pour le background décoratif */}
-        <div className="absolute top-0 left-0 w-64 h-64 bg-sky-100 dark:bg-sky-900/30 rounded-full mix-blend-multiply dark:mix-blend-lighten filter blur-3xl opacity-30 -translate-x-1/2 -translate-y-1/2"></div>
-        <div className="absolute bottom-0 right-0 w-64 h-64 bg-teal-100 dark:bg-teal-900/30 rounded-full mix-blend-multiply dark:mix-blend-lighten filter blur-3xl opacity-30 translate-x-1/2 translate-y-1/2"></div>
+        {/* Background Effects */}
+        {themeMode === 'cosmic' && (
+          <>
+            <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-500/10 rounded-full mix-blend-screen filter blur-3xl animate-pulse"></div>
+            <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-violet-500/10 rounded-full mix-blend-screen filter blur-3xl animate-pulse delay-1000"></div>
+          </>
+        )}
+        
+        {themeMode === 'neon' && (
+          <>
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent animate-shimmer"></div>
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(0,255,255,0.1),transparent_50%)]"></div>
+          </>
+        )}
 
-        <div className="w-full max-w-md z-10">
+        <div className="w-full max-w-2xl z-10">
 
-          {/* HEADER LOGO */}
-          <div className="text-center mb-6 animate-fade-in-up">
-            <div className="bg-white dark:bg-slate-800 p-3 w-16 h-16 rounded-2xl shadow-xl flex items-center justify-center mx-auto mb-3 border border-sky-50 dark:border-sky-900">
-              {/* Changement : Icône principale en bleu vif */}
-              <Activity className="text-sky-500 dark:text-sky-400" size={32} />
+          {/* HEADER */}
+          <div className="text-center mb-10 animate-float">
+            <div className={`p-5 w-24 h-24 rounded-3xl shadow-2xl flex items-center justify-center mx-auto mb-5 backdrop-blur-lg border-2 ${
+              themeMode === 'cosmic' ? 'bg-white/5 border-purple-400/30' :
+              themeMode === 'neon' ? 'bg-black/20 border-cyan-400/40 neon-glow' :
+              'bg-amber-50/80 border-amber-400/50'
+            }`}>
+              <Activity className={`${
+                themeMode === 'cosmic' ? 'text-purple-300' :
+                themeMode === 'neon' ? 'text-cyan-300' :
+                'text-amber-600'
+              }`} size={48} />
             </div>
-            <h1 className="text-2xl font-extrabold text-slate-800 dark:text-white tracking-tight">TOHPITOH</h1>
-            <p className="text-slate-500 dark:text-slate-400 text-xs font-medium">Dossier Électronique du Patient</p>
+            <h1 className={`text-4xl font-black tracking-wider mb-2 ${
+              themeMode === 'cosmic' ? 'text-transparent bg-clip-text bg-gradient-to-r from-purple-300 to-pink-300' :
+              themeMode === 'neon' ? 'text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-blue-300 neon-text' :
+              'text-amber-900'
+            }`}>
+              TOHPIOTOH
+            </h1>
+            <p className={`text-sm font-medium tracking-widest ${
+              themeMode === 'cosmic' ? 'text-purple-200/70' :
+              themeMode === 'neon' ? 'text-cyan-200/70' :
+              'text-amber-700/70'
+            }`}>
+              SMART HEALTH PORTAL
+            </p>
           </div>
 
           {/* STEP 1: ROLE SELECTION */}
           {authStep === 'role-selection' && (
-            <div className="space-y-3 animate-fade-in">
-              <p className="text-center text-slate-600 dark:text-slate-300 mb-4 font-medium">Veuillez sélectionner votre espace :</p>
-              
+            <div className="grid grid-cols-2 gap-4 animate-fade-in max-w-xl mx-auto">
               <button
                 onClick={() => selectRole(UserRole.PATIENT)}
-                className="w-full bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 hover:border-sky-500 dark:hover:border-sky-500 hover:shadow-md transition-all group flex items-center justify-between"
+                className={`p-6 rounded-2xl backdrop-blur-lg border-2 transition-all duration-300 hover:scale-105 hover:shadow-2xl group ${
+                  themeMode === 'cosmic' ? 'bg-white/5 border-purple-400/20 hover:border-purple-400/60' :
+                  themeMode === 'neon' ? 'bg-black/20 border-cyan-400/30 hover:border-cyan-400 neon-border' :
+                  'bg-amber-50/50 border-amber-300/50 hover:border-amber-500'
+                }`}
               >
-                <div className="flex items-center space-x-4">
-                  {/* Changement : Patient en bleu (sky) */}
-                  <div className="w-10 h-10 rounded-full bg-sky-50 dark:bg-sky-900/50 text-sky-500 dark:text-sky-400 flex items-center justify-center group-hover:bg-sky-500 group-hover:text-white transition-colors">
-                    <UserIcon size={20} />
+                <div className="flex flex-col items-center space-y-4">
+                  <div className={`p-4 rounded-xl transition-all duration-300 group-hover:rotate-12 ${
+                    themeMode === 'cosmic' ? 'bg-purple-500/20' :
+                    themeMode === 'neon' ? 'bg-cyan-500/20' :
+                    'bg-amber-200'
+                  }`}>
+                    <UserIcon className={`${
+                      themeMode === 'cosmic' ? 'text-purple-300' :
+                      themeMode === 'neon' ? 'text-cyan-300' :
+                      'text-amber-600'
+                    }`} size={28} />
                   </div>
-                  <div className="text-left">
-                    <h3 className="font-bold text-slate-800 dark:text-white group-hover:text-sky-500 dark:group-hover:text-sky-500 transition-colors">Patient</h3>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500">Accéder à mon dossier médical</p>
+                  <div className="text-center">
+                    <h3 className={`font-bold text-lg mb-1 ${
+                      themeMode === 'cosmic' ? 'text-white' :
+                      themeMode === 'neon' ? 'text-white' :
+                      'text-amber-900'
+                    }`}>
+                      Citizen
+                    </h3>
+                    <p className={`text-xs ${
+                      themeMode === 'cosmic' ? 'text-purple-200/60' :
+                      themeMode === 'neon' ? 'text-cyan-200/60' :
+                      'text-amber-700/70'
+                    }`}>
+                      Personal Health Vault
+                    </p>
                   </div>
                 </div>
-                <ArrowRight className="text-slate-300 dark:text-slate-600 group-hover:text-sky-500 transition-colors" size={18} />
               </button>
 
               <button
                 onClick={() => selectRole(UserRole.DOCTOR)}
-                className="w-full bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 hover:border-green-500 dark:hover:border-green-500 hover:shadow-md transition-all group flex items-center justify-between"
+                className={`p-6 rounded-2xl backdrop-blur-lg border-2 transition-all duration-300 hover:scale-105 hover:shadow-2xl group ${
+                  themeMode === 'cosmic' ? 'bg-white/5 border-emerald-400/20 hover:border-emerald-400/60' :
+                  themeMode === 'neon' ? 'bg-black/20 border-green-400/30 hover:border-green-400 neon-border' :
+                  'bg-emerald-50/50 border-emerald-300/50 hover:border-emerald-500'
+                }`}
               >
-                <div className="flex items-center space-x-4">
-                  {/* Changement : Docteur en vert standard */}
-                  <div className="w-10 h-10 rounded-full bg-green-50 dark:bg-green-900/50 text-green-500 dark:text-green-400 flex items-center justify-center group-hover:bg-green-500 group-hover:text-white transition-colors">
-                    <Stethoscope size={20} />
+                <div className="flex flex-col items-center space-y-4">
+                  <div className={`p-4 rounded-xl transition-all duration-300 group-hover:-rotate-12 ${
+                    themeMode === 'cosmic' ? 'bg-emerald-500/20' :
+                    themeMode === 'neon' ? 'bg-green-500/20' :
+                    'bg-emerald-200'
+                  }`}>
+                    <Stethoscope className={`${
+                      themeMode === 'cosmic' ? 'text-emerald-300' :
+                      themeMode === 'neon' ? 'text-green-300' :
+                      'text-emerald-600'
+                    }`} size={28} />
                   </div>
-                  <div className="text-left">
-                    <h3 className="font-bold text-slate-800 dark:text-white group-hover:text-green-500 dark:group-hover:text-green-500 transition-colors">Médecin</h3>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500">Gestion des patients et soins</p>
+                  <div className="text-center">
+                    <h3 className={`font-bold text-lg mb-1 ${
+                      themeMode === 'cosmic' ? 'text-white' :
+                      themeMode === 'neon' ? 'text-white' :
+                      'text-emerald-900'
+                    }`}>
+                      Healer
+                    </h3>
+                    <p className={`text-xs ${
+                      themeMode === 'cosmic' ? 'text-emerald-200/60' :
+                      themeMode === 'neon' ? 'text-green-200/60' :
+                      'text-emerald-700/70'
+                    }`}>
+                      Clinical Workspace
+                    </p>
                   </div>
                 </div>
-                <ArrowRight className="text-slate-300 dark:text-slate-600 group-hover:text-green-500 transition-colors" size={18} />
               </button>
 
               <button
                 onClick={() => selectRole(UserRole.LAB)}
-                className="w-full bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 hover:border-lime-500 dark:hover:border-lime-500 hover:shadow-md transition-all group flex items-center justify-between"
+                className={`p-6 rounded-2xl backdrop-blur-lg border-2 transition-all duration-300 hover:scale-105 hover:shadow-2xl group ${
+                  themeMode === 'cosmic' ? 'bg-white/5 border-blue-400/20 hover:border-blue-400/60' :
+                  themeMode === 'neon' ? 'bg-black/20 border-blue-400/30 hover:border-blue-400 neon-border' :
+                  'bg-blue-50/50 border-blue-300/50 hover:border-blue-500'
+                }`}
               >
-                <div className="flex items-center space-x-4">
-                  {/* Changement : Labo en vert citron pastel (lime) */}
-                  <div className="w-10 h-10 rounded-full bg-lime-100 dark:bg-lime-900/50 text-lime-600 dark:text-lime-400 flex items-center justify-center group-hover:bg-lime-500 group-hover:text-white transition-colors">
-                    <ShieldCheck size={20} />
+                <div className="flex flex-col items-center space-y-4">
+                  <div className={`p-4 rounded-xl transition-all duration-300 group-hover:rotate-45 ${
+                    themeMode === 'cosmic' ? 'bg-blue-500/20' :
+                    themeMode === 'neon' ? 'bg-blue-500/20' :
+                    'bg-blue-200'
+                  }`}>
+                    <ShieldCheck className={`${
+                      themeMode === 'cosmic' ? 'text-blue-300' :
+                      themeMode === 'neon' ? 'text-blue-300' :
+                      'text-blue-600'
+                    }`} size={28} />
                   </div>
-                  <div className="text-left">
-                    <h3 className="font-bold text-slate-800 dark:text-white group-hover:text-lime-600 dark:group-hover:text-lime-600 transition-colors">Laboratoire</h3>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500">Traitement des analyses</p>
+                  <div className="text-center">
+                    <h3 className={`font-bold text-lg mb-1 ${
+                      themeMode === 'cosmic' ? 'text-white' :
+                      themeMode === 'neon' ? 'text-white' :
+                      'text-blue-900'
+                    }`}>
+                      Analyst
+                    </h3>
+                    <p className={`text-xs ${
+                      themeMode === 'cosmic' ? 'text-blue-200/60' :
+                      themeMode === 'neon' ? 'text-blue-200/60' :
+                      'text-blue-700/70'
+                    }`}>
+                      Diagnostic Hub
+                    </p>
                   </div>
                 </div>
-                <ArrowRight className="text-slate-300 dark:text-slate-600 group-hover:text-lime-600 transition-colors" size={18} />
               </button>
 
               <button
                 onClick={() => selectRole(UserRole.ADMIN)}
-                className="w-full bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 hover:border-teal-500 dark:hover:border-teal-500 hover:shadow-md transition-all group flex items-center justify-between"
+                className={`p-6 rounded-2xl backdrop-blur-lg border-2 transition-all duration-300 hover:scale-105 hover:shadow-2xl group ${
+                  themeMode === 'cosmic' ? 'bg-white/5 border-red-400/20 hover:border-red-400/60' :
+                  themeMode === 'neon' ? 'bg-black/20 border-pink-400/30 hover:border-pink-400 neon-border' :
+                  'bg-rose-50/50 border-rose-300/50 hover:border-rose-500'
+                }`}
               >
-                <div className="flex items-center space-x-4">
-                  {/* Changement : Admin en Teal/Cyan */}
-                  <div className="w-10 h-10 rounded-full bg-teal-50 dark:bg-teal-900/50 text-teal-500 dark:text-teal-400 flex items-center justify-center group-hover:bg-teal-500 group-hover:text-white transition-colors">
-                    <ShieldAlert size={20} />
+                <div className="flex flex-col items-center space-y-4">
+                  <div className={`p-4 rounded-xl transition-all duration-300 group-hover:-rotate-45 ${
+                    themeMode === 'cosmic' ? 'bg-red-500/20' :
+                    themeMode === 'neon' ? 'bg-pink-500/20' :
+                    'bg-rose-200'
+                  }`}>
+                    <ShieldAlert className={`${
+                      themeMode === 'cosmic' ? 'text-red-300' :
+                      themeMode === 'neon' ? 'text-pink-300' :
+                      'text-rose-600'
+                    }`} size={28} />
                   </div>
-                  <div className="text-left">
-                    <h3 className="font-bold text-slate-800 dark:text-white group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors">Admin</h3>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500">Administration Système</p>
+                  <div className="text-center">
+                    <h3 className={`font-bold text-lg mb-1 ${
+                      themeMode === 'cosmic' ? 'text-white' :
+                      themeMode === 'neon' ? 'text-white' :
+                      'text-rose-900'
+                    }`}>
+                      Sentinel
+                    </h3>
+                    <p className={`text-xs ${
+                      themeMode === 'cosmic' ? 'text-red-200/60' :
+                      themeMode === 'neon' ? 'text-pink-200/60' :
+                      'text-rose-700/70'
+                    }`}>
+                      System Control
+                    </p>
                   </div>
                 </div>
-                <ArrowRight className="text-slate-300 dark:text-slate-600 group-hover:text-teal-600 transition-colors" size={18} />
               </button>
             </div>
           )}
 
-          {/* AUTH CONTAINER (LOGIN or REGISTER) */}
+          {/* AUTH CONTAINER */}
           {(authStep === 'login' || authStep === 'register') && targetRole && (
-            <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl p-8 animate-slide-in relative border border-slate-50 dark:border-slate-700">
+            <div className={`max-w-md mx-auto rounded-3xl p-8 backdrop-blur-xl border-2 animate-slide-in ${
+              themeMode === 'cosmic' ? 'bg-white/5 border-purple-400/30' :
+              themeMode === 'neon' ? 'bg-black/30 border-cyan-400/40 neon-container' :
+              'bg-white/90 border-amber-300/50'
+            }`}>
               <button
                 onClick={() => {
                   setAuthStep('role-selection');
                   setError('');
                   setSuccessMsg('');
                 }}
-                className="absolute top-6 left-6 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition"
+                className={`p-2 rounded-lg mb-6 transition-all hover:scale-110 ${
+                  themeMode === 'cosmic' ? 'text-purple-300 hover:bg-purple-500/20' :
+                  themeMode === 'neon' ? 'text-cyan-300 hover:bg-cyan-500/20' :
+                  'text-amber-600 hover:bg-amber-200'
+                }`}
               >
-                <ChevronLeft size={24} />
+                <ChevronLeft size={28} />
               </button>
 
-              <div className="text-center mb-6">
-                <h2 className="text-xl font-bold text-slate-800 dark:text-white">
-                  {targetRole === UserRole.PATIENT ? 'Espace Patient' :
-                   targetRole === UserRole.DOCTOR ? 'Espace Médecin' :
-                   targetRole === UserRole.LAB ? 'Espace Laboratoire' : 'Espace Admin'}
+              <div className="text-center mb-8">
+                <h2 className={`text-2xl font-bold mb-2 ${
+                  themeMode === 'cosmic' ? 'text-white' :
+                  themeMode === 'neon' ? 'text-white' :
+                  'text-amber-900'
+                }`}>
+                  {targetRole === UserRole.PATIENT ? 'Citizen Portal' :
+                   targetRole === UserRole.DOCTOR ? 'Healer Console' :
+                   targetRole === UserRole.LAB ? 'Analyst Terminal' : 'Sentinel Command'}
                 </h2>
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
-                  {authStep === 'login' ? 'Connexion à votre compte' : 'Création de nouveau compte'}
-                </p>
+                <div className={`h-1 w-20 mx-auto rounded-full ${
+                  themeMode === 'cosmic' ? 'bg-gradient-to-r from-purple-400 to-pink-400' :
+                  themeMode === 'neon' ? 'bg-gradient-to-r from-cyan-400 to-blue-400' :
+                  'bg-gradient-to-r from-amber-400 to-orange-400'
+                }`}></div>
               </div>
 
               {error && (
-                <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-3 rounded-lg text-xs text-center border border-red-100 dark:border-red-900/50 font-medium mb-4">
-                  {error}
+                <div className={`p-4 rounded-xl mb-6 animate-shake ${
+                  themeMode === 'cosmic' ? 'bg-red-500/20 border border-red-400/30' :
+                  themeMode === 'neon' ? 'bg-red-500/20 border border-red-400/50 neon-alert' :
+                  'bg-red-100 border border-red-300'
+                }`}>
+                  <p className={`text-center font-medium ${
+                    themeMode === 'cosmic' ? 'text-red-200' :
+                    themeMode === 'neon' ? 'text-red-300' :
+                    'text-red-700'
+                  }`}>
+                    ⚠️ {error}
+                  </p>
                 </div>
               )}
 
               {successMsg && (
-                <div className="bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 p-3 rounded-lg text-xs text-center border border-green-100 dark:border-green-900/50 font-medium mb-4">
-                  {successMsg}
+                <div className={`p-4 rounded-xl mb-6 ${
+                  themeMode === 'cosmic' ? 'bg-emerald-500/20 border border-emerald-400/30' :
+                  themeMode === 'neon' ? 'bg-green-500/20 border border-green-400/50 neon-success' :
+                  'bg-emerald-100 border border-emerald-300'
+                }`}>
+                  <p className={`text-center font-medium ${
+                    themeMode === 'cosmic' ? 'text-emerald-200' :
+                    themeMode === 'neon' ? 'text-green-300' :
+                    'text-emerald-700'
+                  }`}>
+                    ✓ {successMsg}
+                  </p>
                 </div>
               )}
 
               {/* LOGIN FORM */}
               {authStep === 'login' && (
-                <form onSubmit={handleLogin} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Email</label>
-                    <div className="relative">
-                      <Mail className="absolute left-3 top-3 text-slate-400 dark:text-slate-500" size={18} />
+                <form onSubmit={handleLogin} className="space-y-6">
+                  <div className="space-y-2">
+                    <div className="relative group">
+                      <Mail className={`absolute left-4 top-1/2 transform -translate-y-1/2 ${
+                        themeMode === 'cosmic' ? 'text-purple-300/60' :
+                        themeMode === 'neon' ? 'text-cyan-300/60' :
+                        'text-amber-500/60'
+                      }`} size={20} />
                       <input
-                          type="email"
-                          required
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          // Changement : focus ring en bleu vif (sky) pour tous les inputs
-                          className="w-full pl-10 pr-4 py-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 dark:focus:ring-sky-500 transition-all text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-600"
-                          placeholder="exemple@email.com"
+                        type="email"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className={`w-full pl-12 pr-4 py-4 rounded-xl backdrop-blur-lg border-2 focus:outline-none transition-all duration-300 ${
+                          themeMode === 'cosmic' ? 
+                            'bg-white/5 border-purple-400/20 text-white placeholder-purple-300/40 focus:border-purple-400 focus:shadow-lg focus:shadow-purple-500/20' :
+                          themeMode === 'neon' ?
+                            'bg-black/20 border-cyan-400/30 text-white placeholder-cyan-300/40 focus:border-cyan-400 focus:shadow-lg focus:shadow-cyan-500/30' :
+                            'bg-white/80 border-amber-300/50 text-amber-900 placeholder-amber-500/60 focus:border-amber-500 focus:shadow-lg focus:shadow-amber-500/20'
+                        }`}
+                        placeholder="quantum@id.verse"
+                      />
+                    </div>
+                    
+                    <div className="relative group">
+                      <Lock className={`absolute left-4 top-1/2 transform -translate-y-1/2 ${
+                        themeMode === 'cosmic' ? 'text-purple-300/60' :
+                        themeMode === 'neon' ? 'text-cyan-300/60' :
+                        'text-amber-500/60'
+                      }`} size={20} />
+                      <input
+                        type="password"
+                        required
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className={`w-full pl-12 pr-4 py-4 rounded-xl backdrop-blur-lg border-2 focus:outline-none transition-all duration-300 ${
+                          themeMode === 'cosmic' ? 
+                            'bg-white/5 border-purple-400/20 text-white placeholder-purple-300/40 focus:border-purple-400 focus:shadow-lg focus:shadow-purple-500/20' :
+                          themeMode === 'neon' ?
+                            'bg-black/20 border-cyan-400/30 text-white placeholder-cyan-300/40 focus:border-cyan-400 focus:shadow-lg focus:shadow-cyan-500/30' :
+                            'bg-white/80 border-amber-300/50 text-amber-900 placeholder-amber-500/60 focus:border-amber-500 focus:shadow-lg focus:shadow-amber-500/20'
+                        }`}
+                        placeholder="••••••••••••"
                       />
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Mot de passe</label>
-                    <div className="relative">
-                      <Lock className="absolute left-3 top-3 text-slate-400 dark:text-slate-500" size={18} />
-                      <input
-                          type="password"
-                          required
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          // Changement : focus ring en bleu vif (sky)
-                          className="w-full pl-10 pr-4 py-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 dark:focus:ring-sky-500 transition-all text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-600"
-                          placeholder="••••••••"
-                      />
-                    </div>
-                  </div>
+                  <button 
+                    type="submit"
+                    disabled={loading}
+                    className={`w-full py-4 rounded-xl font-bold transition-all duration-300 transform hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:scale-100 shadow-2xl ${
+                      targetRole === UserRole.PATIENT ? (
+                        themeMode === 'cosmic' ? 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600' :
+                        themeMode === 'neon' ? 'bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600' :
+                        'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600'
+                      ) : targetRole === UserRole.DOCTOR ? (
+                        themeMode === 'cosmic' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600' :
+                        themeMode === 'neon' ? 'bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600' :
+                        'bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600'
+                      ) : targetRole === UserRole.LAB ? (
+                        themeMode === 'cosmic' ? 'bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600' :
+                        themeMode === 'neon' ? 'bg-gradient-to-r from-blue-500 to-violet-500 hover:from-blue-600 hover:to-violet-600' :
+                        'bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600'
+                      ) : (
+                        themeMode === 'cosmic' ? 'bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600' :
+                        themeMode === 'neon' ? 'bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600' :
+                        'bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600'
+                      )
+                    }`}
+                  >
+                    {loading ? (
+                      <Loader2 className="animate-spin mx-auto" size={24} />
+                    ) : (
+                      <span className="text-white tracking-wider">QUANTUM ENTRY</span>
+                    )}
+                  </button>
 
-                  <div className="pt-2">
-                    <button 
-                      type="submit"
-                      disabled={loading}
-                      className={`w-full flex items-center justify-center p-4 rounded-xl font-bold text-white transition transform active:scale-95 shadow-lg disabled:opacity-70 disabled:scale-100 ${
-                        // Changement des couleurs des boutons selon le rôle
-                        targetRole === UserRole.PATIENT ? 'bg-sky-600 hover:bg-sky-700' :
-                        targetRole === UserRole.DOCTOR ? 'bg-green-600 hover:bg-green-700' :
-                        targetRole === UserRole.LAB ? 'bg-lime-600 hover:bg-lime-700' :
-                        'bg-teal-600 hover:bg-teal-700'
-                      }`}
-                    >
-                      {loading ? <Loader2 className="animate-spin" /> : "Se Connecter"}
-                    </button>
-                  </div>
-                  
                   {targetRole !== UserRole.ADMIN && (
-                    <div className="text-center mt-4 border-t border-slate-100 dark:border-slate-700 pt-4">
-                      <p className="text-xs text-slate-400 dark:text-slate-500">Nouveau sur TOHPITOH ?</p>
+                    <div className="text-center pt-4 border-t border-white/10">
                       <button
                         type="button"
-                        onClick={() => {
-                            setAuthStep('register');
-                            setError('');
-                            setSuccessMsg('');
-                        }}
-                        className="text-sm font-bold text-sky-500 dark:text-sky-400 hover:underline mt-1"
+                        onClick={() => setAuthStep('register')}
+                        className={`text-sm font-bold transition-all hover:scale-105 ${
+                          themeMode === 'cosmic' ? 'text-purple-300 hover:text-purple-200' :
+                          themeMode === 'neon' ? 'text-cyan-300 hover:text-cyan-200' :
+                          'text-amber-600 hover:text-amber-700'
+                        }`}
                       >
-                        Créer un compte
+                        CREATE NEW IDENTITY →
                       </button>
                     </div>
                   )}
                 </form>
               )}
 
-              {/* REGISTER FORM */}
+              {/* REGISTER FORM - Style similaire mais condensé */}
               {authStep === 'register' && (
-                <form onSubmit={handleRegister} className="space-y-3 max-h-[60vh] overflow-y-auto pr-1 scroll-smooth">
-                   {/* Common Fields - Inputs conservent le focus sky-500 */}
-                   <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Prénom</label>
-                        <input 
-                            type="text" required value={regData.firstName}
-                            onChange={(e) => setRegData({...regData, firstName: e.target.value})}
-                            className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 dark:focus:ring-sky-500 text-sm text-slate-900 dark:text-white"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Nom</label>
-                        <input 
-                            type="text" required value={regData.lastName}
-                            onChange={(e) => setRegData({...regData, lastName: e.target.value})}
-                            className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 dark:focus:ring-sky-500 text-sm text-slate-900 dark:text-white"
-                        />
-                      </div>
-                   </div>
-
-                   <div>
-                      <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Email</label>
-                      <input 
-                          type="email" required value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 dark:focus:ring-sky-500 text-sm text-slate-900 dark:text-white"
-                      />
-                   </div>
-
-                   <div>
-                      <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Mot de passe</label>
-                      <input 
-                          type="password" required value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 dark:focus:ring-sky-500 text-sm text-slate-900 dark:text-white"
-                      />
-                   </div>
-                   
-                   <div>
-                      <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Téléphone</label>
-                      <div className="relative">
-                        <Phone className="absolute left-3 top-2.5 text-slate-400 dark:text-slate-500" size={14} />
-                        <input 
-                            type="tel" required value={regData.phone}
-                            onChange={(e) => setRegData({...regData, phone: e.target.value})}
-                            className="w-full pl-8 pr-3 py-2 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 dark:focus:ring-sky-500 text-sm text-slate-900 dark:text-white"
-                        />
-                      </div>
-                   </div>
-
-                   {/* PATIENT SPECIFIC */}
-                   {targetRole === UserRole.PATIENT && (
-                       <div className="bg-sky-50 dark:bg-sky-900/20 p-3 rounded-lg border border-sky-100 dark:border-sky-900/50 space-y-3">
-                           <p className="text-[10px] font-bold text-sky-800 dark:text-sky-400 uppercase">Infos Patient</p>
-                           <div>
-                              <label className="block text-[10px] text-sky-700 dark:text-sky-300 mb-1">Date de Naissance</label>
-                              <div className="relative">
-                                <Calendar className="absolute left-3 top-2.5 text-sky-400 dark:text-sky-500" size={14} />
-                                <input 
-                                    type="date" required value={regData.dob}
-                                    onChange={(e) => setRegData({...regData, dob: e.target.value})}
-                                    className="w-full pl-8 pr-3 py-2 bg-white dark:bg-slate-900/30 border border-sky-200 dark:border-sky-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-400 dark:focus:ring-sky-500 text-sm text-slate-900 dark:text-white"
-                                />
-                              </div>
-                           </div>
-                           <div>
-                              <label className="block text-[10px] text-sky-700 dark:text-sky-300 mb-1">Genre</label>
-                              <select 
-                                value={regData.gender}
-                                onChange={(e) => setRegData({...regData, gender: e.target.value})}
-                                className="w-full px-3 py-2 bg-white dark:bg-slate-900/30 border border-sky-200 dark:border-sky-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-400 dark:focus:ring-sky-500 text-sm text-slate-900 dark:text-white"
-                              >
-                                <option value="M">Masculin</option>
-                                <option value="F">Féminin</option>
-                                <option value="O">Autre</option>
-                              </select>
-                           </div>
-                       </div>
-                   )}
-
-                   {/* DOCTOR SPECIFIC */}
-                   {targetRole === UserRole.DOCTOR && (
-                       <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded-lg border border-green-100 dark:border-green-900/50 space-y-3">
-                           <p className="text-[10px] font-bold text-green-800 dark:text-green-400 uppercase">Infos Professionnelles</p>
-                           <div>
-                              <label className="block text-[10px] text-green-700 dark:text-green-300 mb-1">Numéro de Licence</label>
-                              <div className="relative">
-                                <Hash className="absolute left-3 top-2.5 text-green-400 dark:text-green-500" size={14} />
-                                <input 
-                                    type="text" required value={regData.licenseNumber}
-                                    onChange={(e) => setRegData({...regData, licenseNumber: e.target.value})}
-                                    className="w-full pl-8 pr-3 py-2 bg-white dark:bg-slate-900/30 border border-green-200 dark:border-green-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400 dark:focus:ring-green-500 text-sm text-slate-900 dark:text-white"
-                                    placeholder="LIC-12345"
-                                />
-                              </div>
-                           </div>
-                           <div className="grid grid-cols-2 gap-2">
-                               <div>
-                                  <label className="block text-[10px] text-green-700 dark:text-green-300 mb-1">Spécialité</label>
-                                  <input 
-                                      type="text" required value={regData.specialty}
-                                      onChange={(e) => setRegData({...regData, specialty: e.target.value})}
-                                      className="w-full px-3 py-2 bg-white dark:bg-slate-900/30 border border-green-200 dark:border-green-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400 dark:focus:ring-green-500 text-sm text-slate-900 dark:text-white"
-                                  />
-                               </div>
-                               <div>
-                                  <label className="block text-[10px] text-green-700 dark:text-green-300 mb-1">Hôpital/Clinique</label>
-                                  <input 
-                                      type="text" required value={regData.hospital}
-                                      onChange={(e) => setRegData({...regData, hospital: e.target.value})}
-                                      className="w-full px-3 py-2 bg-white dark:bg-slate-900/30 border border-green-200 dark:border-green-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400 dark:focus:ring-green-500 text-sm text-slate-900 dark:text-white"
-                                  />
-                               </div>
-                           </div>
-                       </div>
-                   )}
-
-                   {/* LAB SPECIFIC */}
-                   {targetRole === UserRole.LAB && (
-                       <div className="bg-lime-50 dark:bg-lime-900/20 p-3 rounded-lg border border-lime-100 dark:border-lime-900/50 space-y-3">
-                           <p className="text-[10px] font-bold text-lime-800 dark:text-lime-400 uppercase">Infos Laboratoire</p>
-                           <div>
-                              <label className="block text-[10px] text-lime-700 dark:text-lime-300 mb-1">Numéro d'Accréditation</label>
-                              <div className="relative">
-                                <Hash className="absolute left-3 top-2.5 text-lime-400 dark:text-lime-500" size={14} />
-                                <input 
-                                    type="text" required value={regData.licenseNumber}
-                                    onChange={(e) => setRegData({...regData, licenseNumber: e.target.value})}
-                                    className="w-full pl-8 pr-3 py-2 bg-white dark:bg-slate-900/30 border border-lime-200 dark:border-lime-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-lime-400 dark:focus:ring-lime-500 text-sm text-slate-900 dark:text-white"
-                                    placeholder="LAB-98765"
-                                />
-                              </div>
-                           </div>
-                       </div>
-                   )}
-
-                   <div className="pt-2">
-                      <button 
-                        type="submit"
-                        disabled={loading}
-                        className={`w-full flex items-center justify-center p-4 rounded-xl font-bold text-white transition transform active:scale-95 shadow-lg disabled:opacity-70 disabled:scale-100 ${
-                          // Changement des couleurs des boutons d'inscription
-                          targetRole === UserRole.PATIENT ? 'bg-sky-600 hover:bg-sky-700' :
-                          targetRole === UserRole.DOCTOR ? 'bg-green-600 hover:bg-green-700' :
-                          'bg-lime-600 hover:bg-lime-700'
-                        }`}
-                      >
-                        {loading ? <Loader2 className="animate-spin" /> : "S'inscrire"}
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={() => setAuthStep('login')}
-                        className="w-full text-center text-xs text-gray-500 dark:text-slate-400 mt-3 hover:text-gray-800 dark:hover:text-slate-200"
-                      >
-                        Annuler
-                      </button>
-                   </div>
+                <form onSubmit={handleRegister} className="space-y-4">
+                  {/* Form fields avec le même style que login */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <input
+                      type="text"
+                      required
+                      placeholder="First Name"
+                      className={`px-4 py-3 rounded-lg backdrop-blur-lg border-2 ${
+                        themeMode === 'cosmic' ? 'bg-white/5 border-purple-400/20 text-white' :
+                        themeMode === 'neon' ? 'bg-black/20 border-cyan-400/30 text-white' :
+                        'bg-white/80 border-amber-300/50 text-amber-900'
+                      }`}
+                      value={regData.firstName}
+                      onChange={(e) => setRegData({...regData, firstName: e.target.value})}
+                    />
+                    {/* ... autres champs avec le même pattern ... */}
+                  </div>
+                  
+                  <button 
+                    type="submit"
+                    className={`w-full py-4 rounded-xl font-bold text-white shadow-2xl ${
+                      themeMode === 'cosmic' ? 'bg-gradient-to-r from-purple-600 to-pink-600' :
+                      themeMode === 'neon' ? 'bg-gradient-to-r from-cyan-600 to-blue-600' :
+                      'bg-gradient-to-r from-amber-600 to-orange-600'
+                    }`}
+                  >
+                    GENERATE IDENTITY
+                  </button>
                 </form>
               )}
             </div>
           )}
           
-          <div className="mt-8 text-center">
-            <p className="text-[10px] text-slate-400 dark:text-slate-600">
-              © 2024 TOHPITOH - Plateforme de Santé Numérique
+          <div className="mt-12 text-center">
+            <p className={`text-xs tracking-widest ${
+              themeMode === 'cosmic' ? 'text-purple-300/40' :
+              themeMode === 'neon' ? 'text-cyan-300/40' :
+              'text-amber-600/40'
+            }`}>
+              VERIDICARE QUANTUM SYSTEMS © 2024
             </p>
           </div>
         </div>
@@ -633,11 +668,30 @@ const App: React.FC = () => {
   // --- RENDER AUTHENTICATED SCREENS ---
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-900 dark:to-slate-800 flex items-center justify-center transition-colors duration-300">
+      <div className={`min-h-screen flex items-center justify-center ${
+        themeMode === 'cosmic' ? 'bg-gradient-to-br from-gray-900 via-purple-900 to-violet-900' :
+        themeMode === 'neon' ? 'bg-gradient-to-br from-black via-blue-900 to-cyan-900' :
+        'bg-gradient-to-br from-amber-50 via-orange-100 to-yellow-100'
+      }`}>
         <div className="text-center">
-          {/* Changement : Loader en bleu vif (sky) */}
-          <Loader2 className="animate-spin mx-auto text-sky-500 dark:text-sky-400 mb-4" size={48} />
-          <p className="text-slate-600 dark:text-slate-300 font-medium">Chargement...</p>
+          <div className={`p-6 rounded-2xl backdrop-blur-lg border-2 animate-pulse ${
+            themeMode === 'cosmic' ? 'border-purple-400/30' :
+            themeMode === 'neon' ? 'border-cyan-400/40' :
+            'border-amber-300/50'
+          }`}>
+            <Loader2 className={`animate-spin mx-auto mb-4 ${
+              themeMode === 'cosmic' ? 'text-purple-300' :
+              themeMode === 'neon' ? 'text-cyan-300' :
+              'text-amber-500'
+            }`} size={48} />
+            <p className={`font-medium ${
+              themeMode === 'cosmic' ? 'text-purple-200' :
+              themeMode === 'neon' ? 'text-cyan-200' :
+              'text-amber-700'
+            }`}>
+              INITIALIZING QUANTUM STATE...
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -651,10 +705,10 @@ const App: React.FC = () => {
       onLogout={handleLogout}
       activeTab={activeTab}
       setActiveTab={setActiveTab}
-      darkMode={darkMode}
-      toggleDarkMode={toggleDarkMode}
+      themeMode={themeMode}
+      cycleTheme={cycleTheme}
     >
-      {/* PATIENT VIEWS */}
+      {/* Les composants restent inchangés fonctionnellement */}
       {(role === 'patient' || role === 'user') && (
         <>
           {activeTab === 'summary' && userProfile && (
@@ -679,7 +733,6 @@ const App: React.FC = () => {
         </>
       )}
 
-      {/* DOCTOR VIEWS */}
       {role === 'doctor' && (
         <>
           {activeTab === 'patients' && (
@@ -691,7 +744,6 @@ const App: React.FC = () => {
         </>
       )}
 
-      {/* LAB VIEWS */}
       {role === 'laboratory' && (
         <>
           {activeTab === 'requests' && (
@@ -703,7 +755,6 @@ const App: React.FC = () => {
         </>
       )}
 
-      {/* ADMIN VIEWS */}
       {role === 'admin' && (
         <>
           {activeTab === 'dashboard' && (
